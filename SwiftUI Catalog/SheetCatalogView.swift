@@ -8,6 +8,9 @@
 import SwiftUI
 
 struct SheetCatalogView: View {
+    /// ネストの一番下にある sheet の dismiss。一番下の sheet を閉じると、その上の sheet もまとめて閉じる。
+    var dismissAll: DismissAction? = nil
+
     @State private var options = SheetOptions()
     @State private var selectedDetentOption: DetentOption?
     @State private var isSheetPresented = false
@@ -78,16 +81,20 @@ struct SheetCatalogView: View {
         }
         .navigationTitle("Sheet")
         .sheet(isPresented: $isSheetPresented, onDismiss: { dismissCount += 1 }) {
-            PresentedSheetCatalog(detentOptions: options.enabledDetents, selectedDetent: selectedDetent)
-                .presentationDetents(Set(options.enabledDetents.map(\.detent)), selection: selectedDetent)
-                .presentationDragIndicator(options.dragIndicator)
-                .interactiveDismissDisabled(options.isInteractiveDismissDisabled)
-                .presentationBackgroundInteraction(options.backgroundInteraction.interaction)
-                .presentationContentInteraction(options.contentInteraction.interaction)
-                .presentationCornerRadius(options.cornerRadius)
+            PresentedSheetCatalog(
+                dismissAll: dismissAll,
+                detentOptions: options.enabledDetents,
+                selectedDetent: selectedDetent
+            )
+            .presentationDetents(Set(options.enabledDetents.map(\.detent)), selection: selectedDetent)
+            .presentationDragIndicator(options.dragIndicator)
+            .interactiveDismissDisabled(options.isInteractiveDismissDisabled)
+            .presentationBackgroundInteraction(options.backgroundInteraction.interaction)
+            .presentationContentInteraction(options.contentInteraction.interaction)
+            .presentationCornerRadius(options.cornerRadius)
         }
         .fullScreenCover(isPresented: $isFullScreenCoverPresented, onDismiss: { dismissCount += 1 }) {
-            PresentedSheetCatalog(detentOptions: [], selectedDetent: .constant(.large))
+            PresentedSheetCatalog(dismissAll: dismissAll, detentOptions: [], selectedDetent: .constant(.large))
         }
     }
 
@@ -116,6 +123,8 @@ struct SheetCatalogView: View {
 
 /// 表示した sheet の中で SheetCatalogView を再帰的に表示し、次の sheet の設定を階層ごとに変えられるようにする
 private struct PresentedSheetCatalog: View {
+    /// 自身がネストの一番下の sheet なら nil
+    let dismissAll: DismissAction?
     let detentOptions: [DetentOption]
     @Binding var selectedDetent: PresentationDetent
 
@@ -123,7 +132,7 @@ private struct PresentedSheetCatalog: View {
 
     var body: some View {
         NavigationStack {
-            SheetCatalogView()
+            SheetCatalogView(dismissAll: dismissAll ?? dismiss)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if detentOptions.count > 1 {
@@ -132,6 +141,13 @@ private struct PresentedSheetCatalog: View {
                                 ForEach(detentOptions) { option in
                                     Text(option.title).tag(option.detent)
                                 }
+                            }
+                        }
+                    }
+                    if let dismissAll {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("すべて閉じる") {
+                                dismissAll()
                             }
                         }
                     }
