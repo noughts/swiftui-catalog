@@ -9,7 +9,7 @@ import SwiftUI
 
 struct SheetCatalogView: View {
     @State private var options = SheetOptions()
-    @State private var selectedDetent: PresentationDetent = .large
+    @State private var selectedDetentOption: DetentOption?
     @State private var isSheetPresented = false
     @State private var isFullScreenCoverPresented = false
     @State private var dismissCount = 0
@@ -18,7 +18,7 @@ struct SheetCatalogView: View {
         Form {
             Section {
                 Button("sheet を表示") {
-                    selectedDetent = options.enabledDetents.first?.detent ?? .large
+                    selectedDetentOption = nil
                     isSheetPresented = true
                 }
                 Button("fullScreenCover を表示") {
@@ -78,20 +78,26 @@ struct SheetCatalogView: View {
         }
         .navigationTitle("Sheet")
         .sheet(isPresented: $isSheetPresented, onDismiss: { dismissCount += 1 }) {
-            SheetContent(
-                title: "sheet",
-                detentOptions: options.enabledDetents,
-                selectedDetent: $selectedDetent
-            )
-            .presentationDetents(Set(options.enabledDetents.map(\.detent)), selection: $selectedDetent)
-            .presentationDragIndicator(options.dragIndicator)
-            .interactiveDismissDisabled(options.isInteractiveDismissDisabled)
-            .presentationBackgroundInteraction(options.backgroundInteraction.interaction)
-            .presentationContentInteraction(options.contentInteraction.interaction)
-            .presentationCornerRadius(options.cornerRadius)
+            PresentedSheetCatalog(detentOptions: options.enabledDetents, selectedDetent: selectedDetent)
+                .presentationDetents(Set(options.enabledDetents.map(\.detent)), selection: selectedDetent)
+                .presentationDragIndicator(options.dragIndicator)
+                .interactiveDismissDisabled(options.isInteractiveDismissDisabled)
+                .presentationBackgroundInteraction(options.backgroundInteraction.interaction)
+                .presentationContentInteraction(options.contentInteraction.interaction)
+                .presentationCornerRadius(options.cornerRadius)
         }
         .fullScreenCover(isPresented: $isFullScreenCoverPresented, onDismiss: { dismissCount += 1 }) {
-            SheetContent(title: "fullScreenCover", detentOptions: [], selectedDetent: .constant(.large))
+            PresentedSheetCatalog(detentOptions: [], selectedDetent: .constant(.large))
+        }
+    }
+
+    /// 有効な detent に含まれる値だけを返す selection。
+    /// 含まれない detent を selection に渡すと SwiftUI が Invalid Configuration を出すため。
+    private var selectedDetent: Binding<PresentationDetent> {
+        Binding {
+            options.resolvedDetent(for: selectedDetentOption).detent
+        } set: { detent in
+            selectedDetentOption = DetentOption.allCases.first { $0.detent == detent }
         }
     }
 
@@ -108,55 +114,33 @@ struct SheetCatalogView: View {
     }
 }
 
-private struct SheetContent: View {
-    let title: String
+/// 表示した sheet の中で SheetCatalogView を再帰的に表示し、次の sheet の設定を階層ごとに変えられるようにする
+private struct PresentedSheetCatalog: View {
     let detentOptions: [DetentOption]
     @Binding var selectedDetent: PresentationDetent
 
     @Environment(\.dismiss) private var dismiss
-    @State private var isNestedSheetPresented = false
 
     var body: some View {
         NavigationStack {
-            List {
-                if !detentOptions.isEmpty {
-                    Section("selection で detent を変更") {
-                        ForEach(detentOptions) { option in
-                            Button {
-                                selectedDetent = option.detent
-                            } label: {
-                                LabeledContent(option.title) {
-                                    if option.detent == selectedDetent {
-                                        Image(systemName: "checkmark")
-                                    }
+            SheetCatalogView()
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if detentOptions.count > 1 {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Picker("selection", selection: $selectedDetent) {
+                                ForEach(detentOptions) { option in
+                                    Text(option.title).tag(option.detent)
                                 }
                             }
                         }
                     }
-                }
-
-                Section {
-                    Button("さらに sheet を表示") {
-                        isNestedSheetPresented = true
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(role: .close) {
+                            dismiss()
+                        }
                     }
                 }
-
-                Section("スクロール確認用") {
-                    ForEach(0..<30) { index in
-                        Text("行 \(index + 1)")
-                    }
-                }
-            }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                Button(role: .close) {
-                    dismiss()
-                }
-            }
-        }
-        .sheet(isPresented: $isNestedSheetPresented) {
-            SheetContent(title: "ネストした sheet", detentOptions: [], selectedDetent: .constant(.large))
         }
     }
 }
@@ -174,6 +158,14 @@ private struct SheetOptions {
     var enabledDetents: [DetentOption] {
         let enabled = DetentOption.allCases.filter { detents.contains($0) }
         return enabled.isEmpty ? [.large] : enabled
+    }
+
+    /// selection が有効な detent に含まれない（未選択を含む）場合は一番小さい detent を返す。
+    func resolvedDetent(for selection: DetentOption?) -> DetentOption {
+        if let selection, enabledDetents.contains(selection) {
+            return selection
+        }
+        return enabledDetents.first ?? .large
     }
 
     var cornerRadius: CGFloat? {
